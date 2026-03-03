@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Happy Holi 🎨</title>
+<link href="https://fonts.googleapis.com/css2?family=Yatra+One&family=Pacifico&family=Poppins:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #180800;
+    overflow: hidden;
+    height: 100vh; width: 100vw;
+    font-family: 'Poppins', sans-serif;
+    cursor: crosshair;
+    touch-action: none;
+  }
+  canvas { position: fixed; top:0; left:0; width:100%; height:100%; z-index:0; }
+  .center {
+    position: fixed; top:50%; left:50%;
+    transform: translate(-50%,-50%);
+    text-align: center; z-index:10; pointer-events:none;
+  }
+  .holi-title {
+    font-family: 'Yatra One', cursive;
+    font-size: clamp(3rem, 10vw, 7rem);
+    line-height: 1;
+    background: linear-gradient(135deg,#ff6b6b,#ffd93d,#6bcb77,#4d96ff,#ff6fe8,#ff9f43);
+    background-size: 300% 300%;
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+    animation: rainbowShift 3s ease infinite, titlePop 1s cubic-bezier(0.34,1.56,0.64,1) both;
+    filter: drop-shadow(0 0 28px rgba(255,100,200,0.5));
+  }
+  .happy {
+    font-family: 'Pacifico', cursive;
+    font-size: clamp(1.5rem,5vw,3rem);
+    color: #fff; letter-spacing: 0.15em;
+    animation: fadeSlideDown 0.8s ease both 0.2s;
+    opacity: 0;
+    text-shadow: 0 0 20px rgba(255,200,100,0.8), 0 2px 4px rgba(0,0,0,0.5);
+  }
+  .subtitle {
+    margin-top: 1rem;
+    font-size: clamp(0.85rem,2.5vw,1.1rem);
+    color: rgba(255,255,255,0.85); letter-spacing: 0.2em;
+    text-transform: uppercase; font-weight: 600;
+    animation: fadeSlideUp 0.8s ease both 1.2s; opacity: 0;
+  }
+  .tagline {
+    margin-top: 0.5rem;
+    font-size: clamp(0.75rem,2vw,0.95rem);
+    color: rgba(255,220,150,0.9);
+    animation: fadeSlideUp 0.8s ease both 1.5s; opacity: 0;
+  }
+  .click-hint {
+    position: fixed; bottom: 2rem; left: 50%; transform: translateX(-50%);
+    color: rgba(255,255,255,0.45); font-size: 0.8rem;
+    letter-spacing: 0.15em; text-transform: uppercase;
+    animation: pulse 2s ease infinite; z-index:10; white-space: nowrap;
+  }
+  @keyframes rainbowShift { 0%{background-position:0% 50%} 50%{background-position:100% 50%} 100%{background-position:0% 50%} }
+  @keyframes titlePop { 0%{transform:scale(0) rotate(-10deg);opacity:0} 100%{transform:scale(1) rotate(0deg);opacity:1} }
+  @keyframes fadeSlideDown { 0%{transform:translateY(-30px);opacity:0} 100%{transform:translateY(0);opacity:1} }
+  @keyframes fadeSlideUp { 0%{transform:translateY(30px);opacity:0} 100%{transform:translateY(0);opacity:1} }
+  @keyframes pulse { 0%,100%{opacity:0.35} 50%{opacity:0.85} }
+</style>
+</head>
+<body>
+<canvas id="canvas"></canvas>
+<div class="center">
+  <div class="happy">✨ Happy</div>
+  <div class="holi-title">HOLI</div>
+  <div class="subtitle">🎨 May your life be as colorful as today 🎨</div>
+  <div class="tagline">Wishing everyone joy, laughter & lots of colour!</div>
+</div>
+<div class="click-hint">✦ Tap anywhere to throw gulal ✦</div>
+
+<script>
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d', { alpha: false });
+let W = canvas.width  = window.innerWidth;
+let H = canvas.height = window.innerHeight;
+
+// ── Gulal color palettes (r,g,b) – rich matte Indian Holi shades ──
+const PALETTES = [
+  [220, 28,  80 ],  // gulal magenta
+  [255, 68,  20 ],  // sindoor orange
+  [240, 190, 0  ],  // haldi yellow
+  [22,  150, 50 ],  // panna green
+  [20,  80,  200],  // neela blue
+  [148, 30,  190],  // baingan purple
+  [230, 40,  110],  // rani pink
+  [255, 120, 0  ],  // marigold amber
+];
+
+// ── PARTICLE POOL – pre-allocated, no GC pressure ──
+const MAX = 1800;
+const px    = new Float32Array(MAX);
+const py    = new Float32Array(MAX);
+const pvx   = new Float32Array(MAX);
+const pvy   = new Float32Array(MAX);
+const palpha= new Float32Array(MAX);
+const pdecay= new Float32Array(MAX);
+const pr    = new Float32Array(MAX);  // half-width
+const prh   = new Float32Array(MAX);  // half-height (for ellipse)
+const prot  = new Float32Array(MAX);  // rotation angle
+const pcr   = new Uint8Array(MAX);
+const pcg   = new Uint8Array(MAX);
+const pcb   = new Uint8Array(MAX);
+const pactive = new Uint8Array(MAX);
+let head = 0; // ring-buffer head
+
+function spawnParticle(x, y, col, isClick) {
+  const i = head % MAX;
+  head++;
+  pactive[i] = 1;
+  px[i] = x; py[i] = y;
+  pcr[i] = col[0]; pcg[i] = col[1]; pcb[i] = col[2];
+
+  const speed = isClick ? Math.random() * 10 + 3 : Math.random() * 3.5 + 0.5;
+  const angle = Math.random() * Math.PI * 2;
+  pvx[i] = Math.cos(angle) * speed;
+  pvy[i] = Math.sin(angle) * speed - (isClick ? Math.random()*6+2 : Math.random()*2.5);
+
+  // Grain size — small & irregular like actual powder
+  const base = isClick ? Math.random()*4+1.5 : Math.random()*2.5+0.8;
+  pr[i]  = base;
+  prh[i] = base * (Math.random()*0.5 + 0.3); // flat ellipse = powder grain
+  prot[i]= Math.random() * Math.PI;
+
+  palpha[i] = Math.random()*0.35 + 0.65;
+  pdecay[i] = isClick ? Math.random()*0.018+0.008 : Math.random()*0.012+0.004;
+  return i;
+}
+
+// ── PUFF POOL (soft cloud of dispersed powder) ──
+const MAX_PUFF = 300;
+const ux=new Float32Array(MAX_PUFF), uy=new Float32Array(MAX_PUFF);
+const uvx=new Float32Array(MAX_PUFF),uvy=new Float32Array(MAX_PUFF);
+const ur=new Float32Array(MAX_PUFF),ugrow=new Float32Array(MAX_PUFF);
+const ualpha=new Float32Array(MAX_PUFF),udecay=new Float32Array(MAX_PUFF);
+const ucr=new Uint8Array(MAX_PUFF),ucg=new Uint8Array(MAX_PUFF),ucb=new Uint8Array(MAX_PUFF);
+const uactive=new Uint8Array(MAX_PUFF);
+let uhead=0;
+
+function spawnPuff(x,y,col){
+  const i=uhead%MAX_PUFF; uhead++;
+  uactive[i]=1;
+  ux[i]=x+(Math.random()-0.5)*18; uy[i]=y+(Math.random()-0.5)*18;
+  uvx[i]=(Math.random()-0.5)*2.5; uvy[i]=-(Math.random()*2+0.8);
+  ur[i]=Math.random()*20+10; ugrow[i]=Math.random()*1.2+0.5;
+  ualpha[i]=Math.random()*0.22+0.1; udecay[i]=Math.random()*0.007+0.003;
+  ucr[i]=col[0]; ucg[i]=col[1]; ucb[i]=col[2];
+}
+
+function randomPalette(){ return PALETTES[Math.random()*PALETTES.length|0]; }
+
+// ── Throw gulal ──
+function throwGulal(x,y,count,isClick){
+  const col  = randomPalette();
+  const col2 = randomPalette();
+  for(let i=0;i<count;i++){
+    spawnParticle(x, y, i%4===0 ? col2 : col, isClick);
+  }
+  const pufCount = isClick ? 5 : 2;
+  for(let i=0;i<pufCount;i++) spawnPuff(x,y,col);
+}
+
+// ── Render loop ──
+let last=0;
+function frame(ts){
+  requestAnimationFrame(frame);
+  const dt = Math.min((ts-last)/16.67, 3); // cap delta, normalize to ~60fps steps
+  last = ts;
+
+  // Dark fill — powder accumulates
+  ctx.fillStyle='rgba(24,8,0,0.18)';
+  ctx.fillRect(0,0,W,H);
+
+  // ── Draw puffs (soft clouds) ──
+  for(let i=0;i<MAX_PUFF;i++){
+    if(!uactive[i]) continue;
+    ux[i]+=uvx[i]*dt; uy[i]+=uvy[i]*dt;
+    uvy[i]+=0.04*dt;
+    ur[i]+=ugrow[i]*dt;
+    ualpha[i]-=udecay[i]*dt;
+    if(ualpha[i]<=0){ uactive[i]=0; continue; }
+
+    const r=ucr[i],g=ucg[i],b=ucb[i];
+    const rad=ur[i];
+    const grad=ctx.createRadialGradient(ux[i],uy[i],0,ux[i],uy[i],rad);
+    grad.addColorStop(0,  `rgba(${r},${g},${b},${(ualpha[i]*0.45).toFixed(2)})`);
+    grad.addColorStop(0.6,`rgba(${r},${g},${b},${(ualpha[i]*0.15).toFixed(2)})`);
+    grad.addColorStop(1,  `rgba(${r},${g},${b},0)`);
+    ctx.beginPath();
+    ctx.arc(ux[i],uy[i],rad,0,Math.PI*2);
+    ctx.fillStyle=grad;
+    ctx.fill();
+  }
+
+  // ── Draw particles as tiny flat ellipses (powder grains) ──
+  for(let i=0;i<MAX;i++){
+    if(!pactive[i]) continue;
+    px[i]+=pvx[i]*dt; py[i]+=pvy[i]*dt;
+    pvy[i]+=0.26*dt;
+    pvx[i]*=Math.pow(0.97,dt);
+    palpha[i]-=pdecay[i]*dt;
+    if(palpha[i]<=0){ pactive[i]=0; continue; }
+
+    // Draw: tiny flat ellipse rotated — looks like a powder grain
+    ctx.save();
+    ctx.globalAlpha = palpha[i];
+    ctx.translate(px[i]|0, py[i]|0);
+    ctx.rotate(prot[i]);
+    // Flat color, no gradient = fast
+    ctx.fillStyle=`rgb(${pcr[i]},${pcg[i]},${pcb[i]})`;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, pr[i], prh[i], 0, 0, Math.PI*2);
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
+// ── Auto ambient spray ──
+let autoTimer=0;
+setInterval(()=>{
+  throwGulal(Math.random()*W, Math.random()*H*0.8, 22, false);
+},800);
+
+// Initial burst
+setTimeout(()=>{
+  for(let i=0;i<6;i++) setTimeout(()=>throwGulal(Math.random()*W,Math.random()*H*0.75,28,false),i*120);
+},400);
+
+// ── Input ──
+canvas.addEventListener('click',(e)=>throwGulal(e.clientX,e.clientY,55,true));
+
+let lastTouch={};
+canvas.addEventListener('touchstart',(e)=>{
+  e.preventDefault();
+  for(const t of e.changedTouches){
+    throwGulal(t.clientX,t.clientY,55,true);
+    lastTouch[t.identifier]={x:t.clientX,y:t.clientY};
+  }
+},{passive:false});
+
+canvas.addEventListener('touchmove',(e)=>{
+  e.preventDefault();
+  for(const t of e.changedTouches){
+    const prev=lastTouch[t.identifier];
+    if(!prev) continue;
+    const dx=t.clientX-prev.x, dy=t.clientY-prev.y;
+    const dist=Math.sqrt(dx*dx+dy*dy);
+    if(dist>12){
+      throwGulal(t.clientX,t.clientY,14,false);
+      lastTouch[t.identifier]={x:t.clientX,y:t.clientY};
+    }
+  }
+},{passive:false});
+
+canvas.addEventListener('touchend',(e)=>{
+  for(const t of e.changedTouches) delete lastTouch[t.identifier];
+});
+
+let moveCount=0;
+canvas.addEventListener('mousemove',(e)=>{
+  if(++moveCount%5!==0) return;
+  throwGulal(e.clientX,e.clientY,5,false);
+});
+
+window.addEventListener('resize',()=>{
+  W=canvas.width=window.innerWidth;
+  H=canvas.height=window.innerHeight;
+});
+
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
